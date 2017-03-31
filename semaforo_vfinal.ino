@@ -37,7 +37,8 @@ enum {car_green,
       car_red_wait,
       car_yellow,
       car_yellow_wait,
-      ped_blink, night,
+      ped_blink,
+      night,
       verify_night,
       verify_day} state;
 
@@ -98,10 +99,8 @@ void ISR_timer() {
 
 // Chamada de interrupção do botão do pedestre
 void ISR_button() {
-  // Apenas é considerdo o pedido de passagem do pedestre quando os carros estiverem passando
-  // if(state == car_green || state == verify_night) state = car_green_wait;
-  // Deveria ser assim, nao? IGOR
-  if(state != night && state != verify_day) state = car_green_wait;
+  // Apenas é considerado o pedido de passagem do pedestre quando os carros estiverem passando
+  if(state == car_green || state == verify_night) state = car_green_wait;
 }
 
 // Alterna o estado do led amarelo
