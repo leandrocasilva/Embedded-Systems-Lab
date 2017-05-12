@@ -1,21 +1,14 @@
-/* Protocolo de aplicacao - Implementacao usando rotina de interrupcao e
- *  controle.
+/* Datalogger
  *
- *  Uso:
- *  - Computador envia (pelo terminal) uma mensagem:
- *  PING\n\n
- *  - MCU retorna (no terminal):
- *  PONG\n
- *
- *  Tiago F. Tavares
- *  GPL3.0 - 2017
+ *  Igor Alves Maronni        155755
+ *  Leandro Cavalcanti Silva  156176
  */
 
-/* stdio.h contem rotinas para processamento de expressoes regulares */
 #include <stdio.h>
 #include <Wire.h> 
 #include <TimerOne.h>
 
+// Macros do Teclado Matricial
 #define C1 7
 #define C2 6
 #define C3 5
@@ -23,32 +16,54 @@
 #define L2 2
 #define L3 3
 #define L4 4
-#define LDR A0
-#define LED 13
-#define eeprom 0x50    //Address of 24C16 eeprom chip
-#define AUTO_MEASURE_INTERVAL 200
-#define LED_INTERVAL 200
 
-char C[] = {C1, C2, C3};
-char L[] = {L1, L2, L3, L4};
+#define LDR A0  // Entrada analógica do sensor de luz
+#define LED 13  // Led usado para indicar bom funcionamento
+
+#define eeprom 0x50    // Endereço da primeira página da EEPROM 24C16
+
+#define AUTO_MEASURE_INTERVAL 200   // Intervalo de tempo das medições automáticas (x10ms)
+#define LED_INTERVAL 200            // Período de piscada do led (x10ms)
+
+char C[] = {C1, C2, C3};      // Pinos das colunas do teclado matricial
+char L[] = {L1, L2, L3, L4};  // Linhas das colunas do teclado matricial
 char keyboard[4][3]={{'1','2','3'},{'4','5','6'},{'7','8','9'},{'*','0','#'}}; 
-char key, prev_key = 0;
-unsigned int counter_key = 0;
-unsigned int counter_LED = 0;
-unsigned int counter_auto = 0;
-byte key_wait = 0;
-byte auto_measure_status = 0;
-byte LED_status = 0;
 
+char key, prev_key = 0;   // Leituras atual e anterior do teclado matricial
+
+// Contadores
+unsigned int counter_key = 0; // Teclado matricial
+unsigned int counter_LED = 0; // LED
+unsigned int counter_auto = 0;// Medição automática
+
+// Flags de estado
+byte debouncing_status = 0;  // Debouncing do teclado matricial
+byte auto_measure_status = 0; // Estado da medição automática
+byte LED_status = 0;  // Estado do LED
+volatile int flag_check_command = 0;
+
+// Protótipos das funções
 byte readEEPROM(int deviceaddress, unsigned int eeaddress );
 void writeEEPROM(int deviceaddress, unsigned int eeaddress, byte data );
+char sweep();
+int str_cmp(char *s1, char *s2, int len);
+void buffer_clean();
+int buffer_add(char c_in);
+void serialEvent();
+int getInt(char *s);
+void recordLDRinEEPROM();
+void ISR_timer();
+void setup();
+void loop();
 
+// Varredura do teclado matricial
+// @return Caractere do botão pressionado
 char sweep(){
   int i,j;
   for(i=0;i<4;i++){
-    digitalWrite(L[i], LOW);
+    digitalWrite(L[i], LOW);  // Abaixamos o nível de cada linha
     for(j=0;j<3;j++){
-      if(digitalRead(C[j]) == LOW){
+      if(digitalRead(C[j]) == LOW){ // Se a coluna estiver curto-circuitada com a linha
         digitalWrite(L[i], HIGH);
         return keyboard[i][j];
       }
@@ -74,6 +89,7 @@ int str_cmp(char *s1, char *s2, int len) {
 /* Processo de bufferizacao. Caracteres recebidos sao armazenados em um buffer. Quando um caractere
  *  de fim de linha ('\n') e recebido, todos os caracteres do buffer sao processados simultaneamente.
  */
+char out_buffer[50];
 
 /* Buffer de dados recebidos */
 #define MAX_BUFFER_SIZE 15
@@ -113,10 +129,6 @@ int buffer_add(char c_in) {
   return 0;
 }
 
-
-/* Flags globais para controle de processos da interrupcao */
-volatile int flag_check_command = 0;
-
 /* Rotinas de interrupcao */
 
 /* Ao receber evento da UART */
@@ -133,6 +145,39 @@ void serialEvent() {
   }
 }
 
+// Rotina de interrupção periódica
+// @brief Três tarefas estão sendo realizadas nessa rotina:
+//        varredura do teclado, contador das medições automátias e contador do tempo de piscada do LED
+void ISR_timer() {
+  /************************** VARREDURA DO TECLADO MATRICIAL **************************/
+  key = sweep();
+  
+  // Caso a leitura não seja mesma da anterior
+  if(key != prev_key) debouncing_status = 0;    // Não há necessidade de debouncing
+  prev_key = key;
+  
+  // Caso em debouncing
+  if(debouncing_status){
+    counter_key++;
+    key = 0;
+  } else if(key){     // Caso algum botão tenha sido pressionado
+      counter_key = 0;    // Entre em estado de debouncing
+      debouncing_status = 1;
+  }
+  
+  // Caso tempo de debouncing tenha terminado
+  if(counter_key >= 100) debouncing_status = 0;
+  
+  /************************* CONTADOR DAS MEDIÇÕES AUTOMÁTICAS *************************/
+  if(auto_measure_status) counter_auto++;
+  
+  /**************************** CONTADOR DA PISCADA DO LED *****************************/
+  if(LED_status) counter_LED++;
+}
+
+// Extrai o número da instrução "GET N"
+// @param s String contendo a instrução GET N
+// @return O 'N' especificado como inteiro
 int getInt(char *s){
   int number=0;
   byte i;
@@ -143,6 +188,10 @@ int getInt(char *s){
   return number/10;
 }
 
+// Escrita na EEPROM
+// @param devicedaddress Endereço do escravo
+// @param eeaddress Endereço da posição da memória a ser escrita
+// @param data Dado de 1 byte a ser escrito
 void writeEEPROM(int deviceaddress, unsigned int eeaddress, byte data ) 
 {
   Wire.beginTransmission(deviceaddress);
@@ -152,7 +201,11 @@ void writeEEPROM(int deviceaddress, unsigned int eeaddress, byte data )
  
   delay(5);
 }
- 
+
+// Leitura na EEPROM
+// @param devicedaddress Endereço do escravo
+// @param eeaddress Endereço da posição da memória a ser lida
+// @return Byte lido
 byte readEEPROM(int deviceaddress, unsigned int eeaddress ) 
 {
   byte rdata = 0xFF;
@@ -168,33 +221,23 @@ byte readEEPROM(int deviceaddress, unsigned int eeaddress )
   return rdata;
 }
 
-void ISR_timer() {
-  key = sweep();
+// Grava a leitura atual do LDR na próxima posição vazia da EEPROM
+void recordLDRinEEPROM(){
+  byte current_address; // Próxima posição livre da memória EEPROM 
+  byte measured;        // Leitura do LDR
   
-  // Caso a leitura não seja mesma da anterior
-  if(key != prev_key) key_wait = 0;    // Não há necessidade de debouncing
-  prev_key = key;
+  current_address = readEEPROM(eeprom, 0) + 1; // Posição a ser sobreescrita
+  measured = map(analogRead(LDR), 0, 1023, 0, 255); // Conversão da leitura do LDR para 1 byte
   
-  // Caso em debouncing
-  if(key_wait){
-    counter_key++;
-    key = 0;
-  } else if(key){     // Caso algum botão tenha sido pressionado
-      counter_key = 0;    // Entre em estado de debouncing
-      key_wait = 1;
-  }
-  
-  // Caso tempo de debouncing tenha terminado
-  if(counter_key >= 100) key_wait = 0;
-
-  if(auto_measure_status) counter_auto++;
-  if(LED_status) counter_LED++;
+  writeEEPROM(eeprom, current_address, measured);
+  writeEEPROM(eeprom, 0, current_address);
+  sprintf(out_buffer, "Recorded %d at position %d\n", measured, current_address);
 }
 
 /* Funcoes internas ao void main() */
 
 void setup() {
-  /* Inicializacao */
+  // Inicializacao
   buffer_clean();
   flag_check_command = 0;
   unsigned int address = 0;
@@ -216,11 +259,7 @@ void setup() {
 
 
 void loop() {
-  int x, y;
-  char out_buffer[50];
   int flag_write = 0;
-  byte current_address;
-  byte measured;
 
   /* A flag_check_command permite separar a recepcao de caracteres
    *  (vinculada a interrupca) da interpretacao de caracteres. Dessa forma,
@@ -230,63 +269,59 @@ void loop() {
    *  de nao-preemptivo.
    */
 
-    
+  // Caso o botão do teclado tenha sido pressionado    
   if(key != 0){
     switch(key){
-      case '1': 
+      case '1':   // Pisca LED, indicando que o sistema está responsivo
         digitalWrite(LED, HIGH);
         LED_status = 1;
         counter_LED = 0;
         break;
-      case '2': 
-        current_address = readEEPROM(eeprom, 0) + 1;
-        measured = map(analogRead(LDR), 0, 1023, 0, 255);
-        writeEEPROM(eeprom, current_address, measured);
-        writeEEPROM(eeprom, 0, current_address);
-        sprintf(out_buffer, "Recorded %d at position %d\n", measured, current_address);
+      case '2':   // Realiza uma medição e grava o valor na memória
+        recordLDRinEEPROM();
         flag_write = 1;
         break;
-      case '3': 
+      case '3':   // Ativa modo de medição automática
         auto_measure_status = 1;
         counter_auto = AUTO_MEASURE_INTERVAL;
         break;
-      case '4':
+      case '4':   // Encerra modo de medição automática
         auto_measure_status = 0;
     }
   }
 
+  // Caso esteja no modo de piscar o LED e o tempo de piscada terminou
   if(LED_status && counter_LED > LED_INTERVAL){
     LED_status = 0;
     digitalWrite(LED, LOW);
   }
 
+  // Caso modo de medição automática esteja ativo e o intervalo entre as medições tenha
   if(auto_measure_status && counter_auto > AUTO_MEASURE_INTERVAL){
     counter_auto = 0;
-    current_address = readEEPROM(eeprom, 0) + 1;
-    measured = map(analogRead(LDR), 0, 1023, 0, 255);
-    writeEEPROM(eeprom, current_address, measured);
-    writeEEPROM(eeprom, 0, current_address);
-    sprintf(out_buffer, "Recorded %d at position %d\n", measured, current_address);
+    recordLDRinEEPROM();
     flag_write = 1;
   }
   
+  // Se há uma instrução a ser lida da UART
   if (flag_check_command == 1) {
+    // PING
     if (str_cmp((char *)Buffer.data, "PING", 4)) {
       sprintf(out_buffer, "PONG\n");
       flag_write = 1;
     }
-
+    // String de identificação
     else if (str_cmp((char*)Buffer.data, "ID", 2) ) {
       sprintf(out_buffer, "DATALOGGER 1\n");
       flag_write = 1;
     }
-    
+    // Retorna o valor de uma medição sem gravar na memória
     else if (str_cmp((char*)Buffer.data, "MEASURE", 7) ) {
       sprintf(out_buffer, "%d\n", map(analogRead(LDR), 0, 1023, 0, 255));
       flag_write = 1;
       //Serial.println(analogRead(LDR));
     }
-    
+    // Número de elementos da memória
     else if (str_cmp((char*)Buffer.data, "RESET", 5) ){
       writeEEPROM(eeprom, 0, 0);
       sprintf(out_buffer, "RESET\n");
@@ -297,16 +332,12 @@ void loop() {
       sprintf(out_buffer, "%d\n", readEEPROM(eeprom, 0));
       flag_write = 1;
     }
-    
+    // Número de elementos da memória
     else if (str_cmp((char*)Buffer.data, "RECORD", 6) ){
-      current_address = readEEPROM(eeprom, 0) + 1;
-      measured = map(analogRead(LDR), 0, 1023, 0, 255);
-      writeEEPROM(eeprom, current_address, measured);
-      writeEEPROM(eeprom, 0, current_address);
-      sprintf(out_buffer, "Recorded %d at position %d\n", measured, current_address);
+      recordLDRinEEPROM();
       flag_write = 1;
     }
-    
+    // Retorna o N-ésimo elemento da memória se disponível
     else if (str_cmp((char*)Buffer.data, "GET", 3) ){
       int N = getInt((char*)Buffer.data);
       if(N > readEEPROM(eeprom, 0)) sprintf(out_buffer, "Unavailable position\n"); 
@@ -319,11 +350,9 @@ void loop() {
     flag_check_command = 0;
   }
 
-  /* Posso construir uma dessas estruturas if(flag) para cada funcionalidade
-   *  do sistema. Nesta a seguir, flag_write e habilitada sempre que alguma outra
-   *  funcionalidade criou uma requisicao por escrever o conteudo do buffer na
-   *  saida UART.
-   */
+  //  Flag_write é habilitada sempre que alguma outra
+  //  funcionalidade criou uma requisicao por escrever o conteudo do buffer na
+  //  saida UART.
   if (flag_write == 1) {
     Serial.write(out_buffer);
     buffer_clean();
