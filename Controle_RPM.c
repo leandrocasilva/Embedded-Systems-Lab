@@ -1,3 +1,5 @@
+/* https://www.google.com.br/url?sa=i&rct=j&q=&esrc=s&source=images&cd=&cad=rja&uact=8&ved=0ahUKEwinmOCt2ZXUAhVBjJAKHe5WAYcQjRwIBw&url=http%3A%2F%2Fwww.baudaeletronica.com.br%2Fkit-leds-ir-emissor-e-receptor.html&psig=AFQjCNFFSDk6L1ZYLKaWPKYNiaI9Rxdo_g&ust=1496167754181950
+*/
 #include <TimerOne.h>
 
 #define COUNT_PERIOD 1000000 // 1s
