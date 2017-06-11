@@ -57,7 +57,7 @@ enum {BRIGHT,
       DARK} LDR_state;
 
 enum {OFF,
-      STANDBY,
+      ON,
       TRIGGERED} alarm_state;
 
 char password[10], password_attempt[10];
@@ -272,11 +272,11 @@ void loop() {
 
       // Caso esteja digitando a senha
       case TYPE_PASSWORD:
-        if(key == '#') // Terminou de digitar a senha
+        if(key == '#'){ // Terminou de digitar a senha
           keyboard_state = CHECK_PASSWORD;
           password_attempt[nth_digit] = 0;
-          Serial.print(out_buffer, "\n");
-        else{
+          Serial.print("\n");
+        } else{
           sprintf(out_buffer, "%c", key);
           flag_write = 1;
           password_attempt[nth_digit++] = key;
@@ -296,7 +296,7 @@ void loop() {
     }
   }
 
-  if(alarm_state == STANDBY && LDR_state == DARK){
+  if(alarm_state == ON && LDR_state == DARK){
     alarm_state = TRIGGERED;
     Serial.println("There's been a breach.");
     // DO something    
