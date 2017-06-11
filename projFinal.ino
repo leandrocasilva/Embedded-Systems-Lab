@@ -1,9 +1,9 @@
 /* Projeto Final
  * Recursos utilizados:
- *  - LDR para detecção do laser
+ *  - LDR para detecção do laser (LDR em série com resistor de 1k, onde é feita a leitura)
  *  - Teclado Matricial para a senha (possibilidade: usar um 3-input AND (7411) para gerar interrupção)
  *  - Módulo Bluetooth
- *  - EEPROM para guardar senha (?)
+ *  - EEPROM para guardar senha (?) (EEPROM interna)
  *  
  *  (Possíveis interrupções: 2 (INT0) e 3 (INT1))
  */
@@ -13,7 +13,7 @@
 #include <TimerOne.h>
 
 // Pinos do teclado matricial
-/* | 3 | 2 | 8 | 7 | <<
+/* | 3 | 2 | 8 | 7 | <<<
  * | 4 |   | 5 | 6 | */
 #define C1 7
 #define C2 6
@@ -24,19 +24,25 @@
 #define L4 4
 
 // Outras macros
-#define LDR A0
+#define LDR A0 
 #define LED 13
 #define AUTO_MEASURE_INTERVAL 200
 #define LED_INTERVAL 200
 #define PASSWORD_ADDRESS 0
+#define LIGHT_THRESHOLD 350                  // Limiar entre luz e sem luz do LDR
 
-char C[] = {C1, C2, C3};
-char L[] = {L1, L2, L3, L4};
-char keyboard[4][3]={{'1','2','3'},{'4','5','6'},{'7','8','9'},{'*','0','#'}}; 
+char  C[] = {C1, C2, C3},
+      L[] = {L1, L2, L3, L4};
+char keyboard[4][3]={ {'1','2','3'},
+                      {'4','5','6'},
+                      {'7','8','9'},
+                      {'*','0','#'}}; 
 char key, prev_key = 0;
-unsigned int counter_key = 0;
-unsigned int counter_LED = 0;
+unsigned int  counter_key = 0,
+              counter_LED = 0;
 byte key_wait = 0;
+char out_buffer[50];
+int flag_write = 0;
 
 enum {STANDBY,
       CHANGE_PASSWORD,
@@ -47,8 +53,16 @@ enum {NONE,
       CORRECT,
       INCORRECT} password_state;
 
+enum {BRIGHT,
+      DARK} LDR_state;
+
+enum {OFF,
+      STANDBY,
+      TRIGGERED} alarm_state;
+
 char password[10], password_attempt[10];
-char nth_digit = 0;
+uint8_t nth_digit = 0;
+int LDR_reading;
 
 char sweep(){
   int i,j;
@@ -162,6 +176,10 @@ void EEPROM_putString(int address, char* string){
 }
 
 void ISR_timer() {
+  if(analogRead(LDR) < LIGHT_THRESHOLD) LDR_state = DARK;
+  else LDR_state = BRIGHT;
+  //Serial.println(analogRead(LDR));
+    
   key = sweep();
   
   // Caso a leitura não seja mesma da anterior
@@ -204,15 +222,12 @@ void setup() {
 
   // Update <password> variable from memory
   EEPROM_getString(PASSWORD_ADDRESS, password);
+  sprintf(out_buffer, "Stored password: %s\n", password);
+  flag_write = 1;
 }
 
 
 void loop() {
-  int x, y;
-  char out_buffer[50];
-  int flag_write = 0;
-
-
   /* A flag_check_command permite separar a recepcao de caracteres
    *  (vinculada a interrupca) da interpretacao de caracteres. Dessa forma,
    *  mantemos a rotina de interrupcao mais enxuta, enquanto o processo de
@@ -228,10 +243,14 @@ void loop() {
       case STANDBY:
         // Asterisco indica mudança de senha
         if(key == '*'){
+          sprintf(out_buffer, "Typing new password...\n");
+          flag_write = 1;
           keyboard_state = CHANGE_PASSWORD;
           nth_digit = 0;
           digitalWrite(LED, HIGH);
         } else { // Um dígito
+          sprintf(out_buffer, "Password: %c", key);
+          flag_write = 1;
           keyboard_state = TYPE_PASSWORD;
           nth_digit = 0;
           password_attempt[nth_digit++] = key;
@@ -256,29 +275,43 @@ void loop() {
         if(key == '#') // Terminou de digitar a senha
           keyboard_state = CHECK_PASSWORD;
           password_attempt[nth_digit] = 0;
+          Serial.print(out_buffer, "\n");
         else{
+          sprintf(out_buffer, "%c", key);
+          flag_write = 1;
           password_attempt[nth_digit++] = key;
         }
         break;
       
       // Verificação da senha
       case CHECK_PASSWORD:
+        Serial.println("Password is being verified ...");
+        flag_write = 1;
         password_state = (str_cmp(password_attempt, password, strlen(password)) ? CORRECT : INCORRECT);    
+        if(password_state == CORRECT) Serial.println("Access granted.");
+        else Serial.println("Access denied.");
+        flag_write = 1;
         keyboard_state = STANDBY; 
         break;        
     }
   }
-  
-  if (flag_check_command == 1) {
-    if (str_cmp((char *)Buffer.data, "PING", 4)) {
-      // ...
-      flag_write = 1;
-    }
-    
-    else buffer_clean();
 
-    flag_check_command = 0;
+  if(alarm_state == STANDBY && LDR_state == DARK){
+    alarm_state = TRIGGERED;
+    Serial.println("There's been a breach.");
+    // DO something    
   }
+  
+//  if (flag_check_command == 1) {
+//    if (str_cmp((char *)Buffer.data, "PING", 4)) {
+//      // ...
+//      flag_write = 1;
+//    }
+//    
+//    else buffer_clean();
+//
+//    flag_check_command = 0;
+//  }
 
   /* Posso construir uma dessas estruturas if(flag) para cada funcionalidade
    *  do sistema. Nesta a seguir, flag_write e habilitada sempre que alguma outra
