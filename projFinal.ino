@@ -13,6 +13,8 @@
 #include <TimerOne.h>
 
 // Pinos do teclado matricial
+/* | 3 | 2 | 8 | 7 | <<
+ * | 4 |   | 5 | 6 | */
 #define C1 7
 #define C2 6
 #define C3 5
@@ -155,7 +157,7 @@ void EEPROM_getString(int address, char* string){
 
 void EEPROM_putString(int address, char* string){
   uint8_t i = 0;
-  while(string[i]) EEPROM.update(address++, string++]);  
+  while(string[i]) EEPROM.update(address++, string[i++]);  
   EEPROM.update(address, 0); // Finaliza string
 }
 
