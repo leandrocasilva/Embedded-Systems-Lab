@@ -9,8 +9,14 @@
  */
 
 #include <stdio.h>
-#include <EEPROM.h>
+//#include <EEPROM.h>
 #include <TimerOne.h>
+#include <string.h>
+
+/* Pinos bluetooth
+   |   | RX | TX |    | GND
+     |    |    |    | VCC
+*/
 
 // Pinos do teclado matricial
 /* | 3 | 2 | 8 | 7 | <<<
@@ -41,13 +47,12 @@ char key, prev_key = 0;
 unsigned int  counter_key = 0,
               counter_LED = 0;
 byte key_wait = 0;
-char out_buffer[50];
-int flag_write = 0;
 
 enum {STANDBY,
       CHANGE_PASSWORD,
       TYPE_PASSWORD,
-      CHECK_PASSWORD} keyboard_state;
+      CHECK_PASSWORD,
+      TEST} keyboard_state;
 
 enum {NONE,
       CORRECT,
@@ -80,10 +85,12 @@ char sweep(){
 }
 
 /* Rotina auxiliar para comparacao de strings */
-int str_cmp(char *s1, char *s2, int len) {
+int str_cmp(char *s1, char *s2) {
   /* Compare two strings up to length len. Return 1 if they are
    *  equal, and 0 otherwise.
    */
+  int len;
+  if ((len = strlen(s1)) != strlen(s2)) return 0;
   int i;
   for (i=0; i<len; i++) {
     if (s1[i] != s2[i]) return 0;
@@ -164,20 +171,20 @@ int getInt(char *s){
   return number/10;
 }
 
-void EEPROM_getString(int address, char* string){
-  uint8_t i = 0;
-  while(string[i++] = EEPROM.read(address++));
-}
-
-void EEPROM_putString(int address, char* string){
-  uint8_t i = 0;
-  while(string[i]) EEPROM.update(address++, string[i++]);  
-  EEPROM.update(address, 0); // Finaliza string
-}
+//void EEPROM_getString(int address, char* string){
+//  uint8_t i = 0;
+//  while(string[i++] = EEPROM.read(address++));
+//}
+//
+//void EEPROM_putString(int address, char* string){
+//  uint8_t i = 0;
+//  while(string[i]) EEPROM.write(address++, string[i++]);  
+//  EEPROM.write(address, 0); // Finaliza string
+//}
 
 void ISR_timer() {
-  if(analogRead(LDR) < LIGHT_THRESHOLD) LDR_state = DARK;
-  else LDR_state = BRIGHT;
+  //if(analogRead(LDR) < LIGHT_THRESHOLD) LDR_state = DARK;
+  //else LDR_state = BRIGHT;
   //Serial.println(analogRead(LDR));
     
   key = sweep();
@@ -203,6 +210,9 @@ void ISR_timer() {
 
 void setup() {
   /* Inicializacao */
+  keyboard_state = STANDBY;
+  password_state = NONE;
+  alarm_state = OFF;
   buffer_clean();
   flag_check_command = 0;
   unsigned int address = 0;
@@ -221,9 +231,9 @@ void setup() {
   Timer1.attachInterrupt(ISR_timer); // Associa a interrupcao periodica a funcao ISR_timer  
 
   // Update <password> variable from memory
-  EEPROM_getString(PASSWORD_ADDRESS, password);
-  sprintf(out_buffer, "Stored password: %s\n", password);
-  flag_write = 1;
+  //EEPROM_getString(PASSWORD_ADDRESS, password);
+  //sprintf(out_buffer, "Stored password: %s\n", password);
+  //flag_write = 1;
 }
 
 
@@ -235,6 +245,9 @@ void loop() {
    *  outros caracteres. Como o processo nao 'prende' a maquina, ele e chamado
    *  de nao-preemptivo.
    */
+  
+  char out_buffer[50];
+  int flag_write = 0;
 
   // Se tecla do teclado matricial foi pressionado
   if(key != 0){
@@ -264,7 +277,7 @@ void loop() {
           keyboard_state = STANDBY;
           digitalWrite(LED, LOW);
           password[nth_digit] = 0; // Finaliza string
-          EEPROM_putString(PASSWORD_ADDRESS, password);
+          //EEPROM_putString(PASSWORD_ADDRESS, password);
         } else {
           password[nth_digit++] = key; // Guarda senha
         }
@@ -280,20 +293,20 @@ void loop() {
           sprintf(out_buffer, "%c", key);
           flag_write = 1;
           password_attempt[nth_digit++] = key;
+          break;
         }
-        break;
       
       // Verificação da senha
       case CHECK_PASSWORD:
         Serial.println("Password is being verified ...");
-        flag_write = 1;
-        password_state = (str_cmp(password_attempt, password, strlen(password)) ? CORRECT : INCORRECT);    
+        //flag_write = 1;
+        password_state = (str_cmp(password_attempt, password) ? CORRECT : INCORRECT);    
         if(password_state == CORRECT) Serial.println("Access granted.");
         else Serial.println("Access denied.");
-        flag_write = 1;
         keyboard_state = STANDBY; 
         break;        
     }
+    key = 0;
   }
 
   if(alarm_state == ON && LDR_state == DARK){
