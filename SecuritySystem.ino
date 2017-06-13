@@ -3,13 +3,14 @@
  *  - LDR para detecção do laser (LDR em série com resistor de 1k, onde é feita a leitura)
  *  - Teclado Matricial para a senha (possibilidade: usar um 3-input AND (7411) para gerar interrupção)
  *  - Módulo Bluetooth
- *  - EEPROM para guardar senha (?) (EEPROM interna)
+ *  - EEPROM para guardar senha (EEPROM interna)
+ *  - Buzzer
  *  
  *  (Possíveis interrupções: 2 (INT0) e 3 (INT1))
  */
 
 #include <stdio.h>
-//#include <EEPROM.h>
+#include <EEPROM.h>
 #include <TimerOne.h>
 #include <string.h>
 
@@ -30,29 +31,43 @@
 #define L4 4
 
 // Outras macros
-#define LDR A0 
-#define LED 13
-#define AUTO_MEASURE_INTERVAL 200
-#define LED_INTERVAL 200
-#define PASSWORD_ADDRESS 0
-#define LIGHT_THRESHOLD 350                  // Limiar entre luz e sem luz do LDR
+#define LDR                   A0 
+#define LED                   13
+#define BUZZER                9
+#define PASSWORD_ADDRESS      0
+#define LIGHT_THRESHOLD       350          // Limiar entre luz e sem luz do LDR
+#define PASS_SIZE             10
 
-char  C[] = {C1, C2, C3},
-      L[] = {L1, L2, L3, L4};
-char keyboard[4][3]={ {'1','2','3'},
-                      {'4','5','6'},
-                      {'7','8','9'},
-                      {'*','0','#'}}; 
-char key, prev_key = 0;
-unsigned int  counter_key = 0,
-              counter_LED = 0;
-byte key_wait = 0;
+char    C[] = {C1, C2, C3},
+        L[] = {L1, L2, L3, L4};
+char    keyboard[4][3]={{'1','2','3'},
+                        {'4','5','6'},
+                        {'7','8','9'},
+                        {'*','0','#'}}; 
+char    key, prev_key = 0;
+boolean key_wait = false;
+uint8_t counter_key = 0;
 
+char    password[PASS_SIZE],
+        password_attempt[PASS_SIZE];
+uint8_t nth_digit = 0;
+boolean proceed = false;
+
+uint8_t LDR_reading;
+
+char    out_buffer[50];
+boolean flag_write = 0;
+
+/*-------------------------------------------------------------------------
+ * -------------------------    STATES   ----------------------------------
+ *------------------------------------------------------------------------- */
 enum {STANDBY,
-      CHANGE_PASSWORD,
-      TYPE_PASSWORD,
-      CHECK_PASSWORD,
-      TEST} keyboard_state;
+      PASSWORD_ATTEMPT_PRE_DEACTIVATE,
+      PASSWORD_ATTEMPT_PRE_CHANGE,
+      CHECK_PASSWORD_PRE_DEACTIVATE,
+      CHECK_PASSWORD_PRE_CHANGE,
+      DEACTIVATE,
+      CHANGE_PASSWORD} keyboard_state;
 
 enum {NONE,
       CORRECT,
@@ -61,14 +76,13 @@ enum {NONE,
 enum {BRIGHT,
       DARK} LDR_state;
 
-enum {OFF,
-      ON,
+enum {ALARM_OFF,
+      ALARM_ON,
       TRIGGERED} alarm_state;
 
-char password[10], password_attempt[10];
-uint8_t nth_digit = 0;
-int LDR_reading;
-
+/*-------------------------------------------------------------------------
+ * --------------------------    SWEEP   ----------------------------------
+ *------------------------------------------------------------------------- */
 char sweep(){
   int i,j;
   for(i=0;i<4;i++){
@@ -84,20 +98,26 @@ char sweep(){
   return 0;  
 }
 
+/*-------------------------------------------------------------------------
+ * ------------------------    STR_CMP   ----------------------------------
+ *------------------------------------------------------------------------- */
 /* Rotina auxiliar para comparacao de strings */
-int str_cmp(char *s1, char *s2) {
+boolean str_cmp(char *s1, char *s2) {
   /* Compare two strings up to length len. Return 1 if they are
    *  equal, and 0 otherwise.
    */
-  int len;
+  uint8_t i, len;
   if ((len = strlen(s1)) != strlen(s2)) return 0;
-  int i;
   for (i=0; i<len; i++) {
     if (s1[i] != s2[i]) return 0;
     if (s1[i] == '\0') return 1;
   }
   return 1;
 }
+
+/*-------------------------------------------------------------------------
+ * --------------------------    SERIAL   ---------------------------------
+ *------------------------------------------------------------------------- */
 
 /* Processo de bufferizacao. Caracteres recebidos sao armazenados em um buffer. Quando um caractere
  *  de fim de linha ('\n') e recebido, todos os caracteres do buffer sao processados simultaneamente.
@@ -141,9 +161,8 @@ int buffer_add(char c_in) {
   return 0;
 }
 
-
 /* Flags globais para controle de processos da interrupcao */
-volatile int flag_check_command = 0;
+volatile boolean flag_check_command = 0;
 
 /* Rotinas de interrupcao */
 
@@ -161,27 +180,25 @@ void serialEvent() {
   }
 }
 
-int getInt(char *s){
-  int number=0;
-  byte i;
-  for(i=4; s[i] != 0; i++){
-    number += s[i]-'0';
-    number *= 10;
-  }
-  return number/10;
+/*-------------------------------------------------------------------------
+ * -------------------------    EEPROM   ----------------------------------
+ *------------------------------------------------------------------------- */
+boolean EEPROM_getString(int address, char* string){
+  uint8_t i = 0;
+  while((string[i++] = EEPROM.read(address++)) && i < PASS_SIZE);
+  if(i == PASS_SIZE) return 0;
+  else return 1;
 }
 
-//void EEPROM_getString(int address, char* string){
-//  uint8_t i = 0;
-//  while(string[i++] = EEPROM.read(address++));
-//}
-//
-//void EEPROM_putString(int address, char* string){
-//  uint8_t i = 0;
-//  while(string[i]) EEPROM.write(address++, string[i++]);  
-//  EEPROM.write(address, 0); // Finaliza string
-//}
+void EEPROM_putString(int address, char* string){
+  uint8_t i = 0;
+  while(string[i]) EEPROM.write(address++, string[i++]);  
+  EEPROM.write(address, 0); // Finaliza string
+}
 
+/*-------------------------------------------------------------------------
+ * ------------------------   ISR_TIMER   ---------------------------------
+ *------------------------------------------------------------------------- */
 void ISR_timer() {
   //if(analogRead(LDR) < LIGHT_THRESHOLD) LDR_state = DARK;
   //else LDR_state = BRIGHT;
@@ -190,7 +207,7 @@ void ISR_timer() {
   key = sweep();
   
   // Caso a leitura não seja mesma da anterior
-  if(key != prev_key) key_wait = 0;    // Não há necessidade de debouncing
+  if(key != prev_key) key_wait = false;    // Não há necessidade de debouncing
   prev_key = key;
   
   // Caso em debouncing
@@ -199,26 +216,29 @@ void ISR_timer() {
     key = 0;
   } else if(key){     // Caso algum botão tenha sido pressionado
       counter_key = 0;    // Entre em estado de debouncing
-      key_wait = 1;
+      key_wait = true;
   }
   
   // Caso tempo de debouncing tenha terminado
-  if(counter_key >= 100) key_wait = 0;
+  if(counter_key >= 100) key_wait = false;
 }
 
-/* Funcoes internas ao void main() */
 
+/*-------------------------------------------------------------------------
+ * --------------------------    SETUP   ----------------------------------
+ *------------------------------------------------------------------------- */
 void setup() {
   /* Inicializacao */
   keyboard_state = STANDBY;
   password_state = NONE;
-  alarm_state = OFF;
+  alarm_state = ALARM_OFF;
   buffer_clean();
   flag_check_command = 0;
   unsigned int address = 0;
   
   Serial.begin(9600);
-  
+
+  pinMode(BUZZER,OUTPUT);
   pinMode(LED, OUTPUT);
   int i;
   for(i=0;i<=3;i++){
@@ -231,12 +251,16 @@ void setup() {
   Timer1.attachInterrupt(ISR_timer); // Associa a interrupcao periodica a funcao ISR_timer  
 
   // Update <password> variable from memory
-  //EEPROM_getString(PASSWORD_ADDRESS, password);
-  //sprintf(out_buffer, "Stored password: %s\n", password);
-  //flag_write = 1;
+  if(EEPROM_getString(PASSWORD_ADDRESS, password))
+    sprintf(out_buffer, "Stored password: %s\n", password);
+  else
+    sprintf(out_buffer, "No stored password.\n"); 
+  flag_write = 1;
 }
 
-
+/*-------------------------------------------------------------------------
+ * --------------------------    LOOP   -----------------------------------
+ *------------------------------------------------------------------------- */
 void loop() {
   /* A flag_check_command permite separar a recepcao de caracteres
    *  (vinculada a interrupca) da interpretacao de caracteres. Dessa forma,
@@ -246,73 +270,131 @@ void loop() {
    *  de nao-preemptivo.
    */
   
-  char out_buffer[50];
-  int flag_write = 0;
+  
 
-  // Se tecla do teclado matricial foi pressionado
-  if(key != 0){
+  /*-------------------------- KEYBOARD STATE MACHINE ----------------------*
+   * <<< INSTRUÇÕES >>>
+   * Selecione:
+   * 1: Para ativar o alarme
+   * 2: Para desativar o alarme
+   * 3: Para alterar a senha
+   * #: Para finalizar entrada de senha
+   * *: Para reiniciar entrada de senha
+   *-----------------------------------------------------------------------*/
+  if(key || proceed){
     switch(keyboard_state){
-      // Caso à espera de um comando
+      /*-------------------- STANDBY --------------------*
+       * A espera de uma comando no teclado.             *
+       *-------------------------------------------------*/
       case STANDBY:
-        // Asterisco indica mudança de senha
-        if(key == '*'){
-          sprintf(out_buffer, "Typing new password...\n");
-          flag_write = 1;
-          keyboard_state = CHANGE_PASSWORD;
-          nth_digit = 0;
-          digitalWrite(LED, HIGH);
-        } else { // Um dígito
-          sprintf(out_buffer, "Password: %c", key);
-          flag_write = 1;
-          keyboard_state = TYPE_PASSWORD;
-          nth_digit = 0;
-          password_attempt[nth_digit++] = key;
+        switch(key){
+          case '1':
+            alarm_state = ALARM_ON;
+            Serial.println("Alarme ativado com sucesso.");
+            break;
+          case '2':
+            Serial.print( "Para desativar o alarme, digite a senha: ");
+            keyboard_state = PASSWORD_ATTEMPT_PRE_DEACTIVATE;
+            nth_digit = 0;
+            digitalWrite(LED, HIGH);
+            break;
+          case '3':
+            Serial.print("Antes de alterar a senha, digite a antiga: ");
+            keyboard_state = PASSWORD_ATTEMPT_PRE_CHANGE;
+            nth_digit = 0;
+            digitalWrite(LED, HIGH);
+            break;
+          default:
+            Serial.println("Comando desconhecido.");
         }
         break;
 
-      // Caso esteja digitando nova senha
-      case CHANGE_PASSWORD:
-        // Caso asterisco novamente: senha finalizada
-        if(key == '#'){
-          keyboard_state = STANDBY;
-          digitalWrite(LED, LOW);
-          password[nth_digit] = 0; // Finaliza string
-          //EEPROM_putString(PASSWORD_ADDRESS, password);
-        } else {
-          password[nth_digit++] = key; // Guarda senha
-        }
-        break;
-
-      // Caso esteja digitando a senha
-      case TYPE_PASSWORD:
+      /*---------------- PASSWORD_ATTEMPT -----------------*
+       * Senha está sendo digitada.                        *
+       *---------------------------------------------------*/
+      case PASSWORD_ATTEMPT_PRE_DEACTIVATE:
+      case PASSWORD_ATTEMPT_PRE_CHANGE:
         if(key == '#'){ // Terminou de digitar a senha
-          keyboard_state = CHECK_PASSWORD;
+          digitalWrite(LED, LOW);
+          switch(keyboard_state){
+            case PASSWORD_ATTEMPT_PRE_DEACTIVATE:
+              keyboard_state = CHECK_PASSWORD_PRE_DEACTIVATE; break;
+            case PASSWORD_ATTEMPT_PRE_CHANGE:
+              keyboard_state = CHECK_PASSWORD_PRE_CHANGE; break;
+          }
           password_attempt[nth_digit] = 0;
-          Serial.print("\n");
-        } else{
+          Serial.print("\n");   
+          proceed = true;
+          break;   
+        } else if (key == '*'){
+            nth_digit = 0;
+        } else {
           sprintf(out_buffer, "%c", key);
           flag_write = 1;
           password_attempt[nth_digit++] = key;
           break;
         }
       
-      // Verificação da senha
-      case CHECK_PASSWORD:
-        Serial.println("Password is being verified ...");
-        //flag_write = 1;
+       /*-------------- CHECK_PASSWORD ------------------*
+       * Verificação de senha.                           *
+       *-------------------------------------------------*/
+      case CHECK_PASSWORD_PRE_DEACTIVATE:
+      case CHECK_PASSWORD_PRE_CHANGE:
         password_state = (str_cmp(password_attempt, password) ? CORRECT : INCORRECT);    
-        if(password_state == CORRECT) Serial.println("Access granted.");
-        else Serial.println("Access denied.");
-        keyboard_state = STANDBY; 
+        if(password_state == CORRECT){
+          Serial.println("Senha correta.");
+          switch(keyboard_state){
+            case CHECK_PASSWORD_PRE_DEACTIVATE:
+              keyboard_state = DEACTIVATE;
+              proceed = true;
+              break;
+            case CHECK_PASSWORD_PRE_CHANGE:
+              Serial.print("Insira nova senha: ");
+              digitalWrite(LED, HIGH);
+              keyboard_state = CHANGE_PASSWORD; break;
+          }
+        } else {
+          Serial.println("Senha incorreta.");
+          keyboard_state = STANDBY;
+        }
         break;        
+     /*------------------ DEACTIVATE -------------------*
+     * Desativar alame.                                 *
+     *--------------------------------------------------*/
+      case DEACTIVATE:
+        alarm_state = ALARM_OFF;
+        Serial.println("Alarme desativado com sucesso.");
+        noTone(BUZZER);
+        break;
+
+      /*--------------- CHANGE_PASSWORD -----------------*
+       * Digitando nova senha.                           *
+       *-------------------------------------------------*/        
+      case CHANGE_PASSWORD:
+        if(key == '#'){
+          sprintf(out_buffer, "Senha alterada para %s\n", password);
+          flag_write = 1;
+          keyboard_state = STANDBY;
+          digitalWrite(LED, LOW);
+          password[nth_digit] = 0; // Finaliza string
+          EEPROM_putString(PASSWORD_ADDRESS, password);
+        } else if (key == '*'){
+            nth_digit = 0;
+        } else {
+          sprintf(out_buffer, "%c", key);
+          flag_write = 1;
+          password[nth_digit++] = key; // Guarda senha
+        }
+        break;
     }
     key = 0;
+    proceed = false;
   }
 
-  if(alarm_state == ON && LDR_state == DARK){
+  if(alarm_state == ALARM_ON && LDR_state == DARK){
     alarm_state = TRIGGERED;
     Serial.println("There's been a breach.");
-    // DO something    
+    tone(BUZZER, 440);    
   }
   
 //  if (flag_check_command == 1) {
