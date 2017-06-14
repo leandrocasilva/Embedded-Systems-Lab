@@ -91,7 +91,8 @@ void initLCD(void) {
  * \brief Envia uma string de caracteres.
  * \param[in] s endere&ccedil;o inicial da string.
  */
-void LCD_send_string(char * s) {
+void LCD_send_string(char * s, uint8_t line) {
+	LCD_position_cursor(line, 1);
 	RS(1);                          ///< Seta o LCD no modo de dados
 	while (*s) {                    ///< enquanto o conte&uacute;do do endere&ccedil;o != 0
 		LCD_send_char(*s, 50);         	///< envia o byte
