@@ -1,7 +1,7 @@
-#define CLK	13
+#define CLK	A2
 #define DIN	3 
 #define DC	9 // RS
-#define CE	 // Enable (ativo baixo)
+#define CE	A1 // Enable (ativo baixo)
 
 /*
  * Estrutura para representar a instrução do LCD e o seu tempo de processamento 
