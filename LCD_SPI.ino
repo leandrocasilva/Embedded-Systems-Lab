@@ -1,7 +1,7 @@
-#define CLK	9
-#define DIN	8 
-#define DC	7 // RS
-#define CE	6 // Enable (ativo baixo)
+#define CLK	13
+#define DIN	3 
+#define DC	9 // RS
+#define CE	 // Enable (ativo baixo)
 
 /*
  * Estrutura para representar a instrução do LCD e o seu tempo de processamento 
@@ -17,12 +17,7 @@ typedef struct _lcd {
 #define LCD_ENTRY_MODE_SET 0x06
 
 void setup(){
-	pinMode(CLK, OUTPUT);
-	pinMode(DIN, OUTPUT);
-	pinMode(DC, OUTPUT);
-	pinMode(CE, OUTPUT);    
-
-	digitalWrite(CE, HIGH); // LCD Disabled
+	initLCD();
 }
 
 /*!
@@ -61,6 +56,13 @@ void LCD_send_char(char c, uint8_t t) {
  * \brief Inicializa o LCD com a sequ&ecirc;ncia de instru&ccedil;&otilde;es recomendada pelo fabricante
  */
 void initLCD(void) {
+	pinMode(CLK, OUTPUT);
+	pinMode(DIN, OUTPUT);
+	pinMode(DC, OUTPUT);
+	pinMode(CE, OUTPUT);    
+
+	digitalWrite(CE, HIGH); // LCD Disabled
+	
 	int k;
 	lcd init_LCD[4];
 
