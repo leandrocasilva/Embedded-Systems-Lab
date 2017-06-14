@@ -116,5 +116,5 @@ void LCD_position_cursor(int linha, int coluna){
  */
 void LCD_clean(void) {
   RS(0);                         ///< Seta o LCD no modo de instru&ccedil;&atilde;o
-  enviaLCD(LCD_DISPLAY_CLEAR,1600);
+  LCD_send_char(LCD_DISPLAY_CLEAR,1600);
 }
