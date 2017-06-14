@@ -78,12 +78,12 @@ void initLCD(void) {
 	init_LCD[3].cop = LCD_ENTRY_MODE_SET;
 	init_LCD[3].tempo = 40;
 
-	delayMicroseconds(40000);
-
 	RS(0);                    ///< Seta o LCD no modo de instru&ccedil;&atilde;o
 	for(k = 0; k < 4; k++) {  
 		LCD_send_char(init_LCD[k].cop, init_LCD[k].tempo);    ///< instru&ccedil;&atilde;o de inicializa&ccedil;&atilde;o
 	}	
+	
+	delayMicroseconds(40000);
 }
 
 /*!
