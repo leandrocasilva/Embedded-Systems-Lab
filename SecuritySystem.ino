@@ -11,6 +11,9 @@
 #include <TimerOne.h>
 #include <string.h>
 
+/*-------------------------------------------------------------------------
+ * -------------------------    MACROS   ----------------------------------
+ *------------------------------------------------------------------------- */
 // Pinos do teclado matricial & LCD
 /* | 12 | 2 | 8 | 7 | 5V  | A2 | 9 | 5V |<<<
  * | 4  |   | 5 | 6 | GND | 5V | 3 | A1 |*/
@@ -44,10 +47,13 @@
 #define LIGHT_THRESHOLD       600   // Limiar entre luz (maior que) e sem luz (menor que) do LDR
 #define PASS_SIZE             10    // Tamanho máximo da senha
 
+/*-------------------------------------------------------------------------
+ * ---------------------  GLOBAL VARIABLES  -------------------------------
+ *------------------------------------------------------------------------- */
 // Variáveis do teclado matricial
 char    C[] = {C1, C2, C3},
         L[] = {L1, L2, L3, L4};           // Colunas e linhas  
-char    keyboard[4][3]={{'1','2','3'},
+char    keypad[4][3]={{'1','2','3'},
                         {'4','5','6'},
                         {'7','8','9'},
                         {'*','0','#'}};   // Caracteres disponíveis
@@ -75,7 +81,7 @@ enum {STANDBY,                          // Em espera de um comando
       CHECK_PASSWORD_PRE_DEACTIVATE,    // Verificação de senha para desativar alarme
       CHECK_PASSWORD_PRE_CHANGE,        // Verificação de senha para alterar senha
       DEACTIVATE,                       // Desativar alarme
-      CHANGE_PASSWORD} keyboard_state;  // Alterar senha
+      CHANGE_PASSWORD} keypad_state;    // Alterar senha
 
 // Estados da verificação de senha
 enum {NONE,
@@ -91,7 +97,9 @@ enum {ALARM_OFF,                // Alarme desligado
       ALARM_ON,                 // Alarme ligado
       TRIGGERED} alarm_state;   // Uma quebra na segurança foi detectada
 
-// Protótipos das funções utilizadas (na ordem em que são definidas)
+/*-------------------------------------------------------------------------
+ * -------------------   FUNCTION PROTOTYPES   ----------------------------
+ *------------------------------------------------------------------------- */
 void setup();
 void loop();
 
@@ -118,7 +126,7 @@ void LCD_clean(void);
  *------------------------------------------------------------------------- */
 void setup() {
   // Inicializacao de estados
-  keyboard_state = STANDBY;
+  keypad_state = STANDBY;
   password_state = NONE;
   LDR_state      = BRIGHT;
   alarm_state    = ALARM_OFF;
@@ -154,7 +162,7 @@ void setup() {
  * --------------------------    LOOP   -----------------------------------
  *------------------------------------------------------------------------- */
 void loop() {
-  /*-------------------------- KEYBOARD STATE MACHINE ----------------------*
+  /*-------------------------- KEYPAD STATE MACHINE ------------------------*
    * <<< INSTRUÇÕES >>>
    * Selecione:
    * 1: Para ativar o alarme
@@ -167,7 +175,7 @@ void loop() {
   // Se um botão foi pressionado ou se há necessidade de mudança de estado
   if(key || proceed){
     proceed = false;
-    switch(keyboard_state){
+    switch(keypad_state){
       /*-------------------- STANDBY --------------------*
        * A espera de uma comando no teclado.             *
        *-------------------------------------------------*/
@@ -188,14 +196,14 @@ void loop() {
               LCD_send_string("Senha: ", 2);              
               nth_digit = 0;  // Zera índice da senha
               digitalWrite(LED, HIGH);
-              keyboard_state = PASSWORD_ATTEMPT_PRE_DEACTIVATE;
+              keypad_state = PASSWORD_ATTEMPT_PRE_DEACTIVATE;
             }
             break;
           case '3': // Alterar senha
             LCD_send_string("Insira senha", 1);
             LCD_send_string("atual: ", 2);            
             nth_digit = 0;  // Zera índice da senha
-            keyboard_state = PASSWORD_ATTEMPT_PRE_CHANGE;
+            keypad_state = PASSWORD_ATTEMPT_PRE_CHANGE;
             digitalWrite(LED, HIGH);
             break;
           default:
@@ -211,11 +219,11 @@ void loop() {
       case PASSWORD_ATTEMPT_PRE_CHANGE:
         if(key == '#'){ // Terminou de digitar a senha
           digitalWrite(LED, LOW);
-          switch(keyboard_state){
+          switch(keypad_state){
             case PASSWORD_ATTEMPT_PRE_DEACTIVATE:
-              keyboard_state = CHECK_PASSWORD_PRE_DEACTIVATE; break;
+              keypad_state = CHECK_PASSWORD_PRE_DEACTIVATE; break;
             case PASSWORD_ATTEMPT_PRE_CHANGE:
-              keyboard_state = CHECK_PASSWORD_PRE_CHANGE; break;
+              keypad_state = CHECK_PASSWORD_PRE_CHANGE; break;
           }
           password_attempt[nth_digit] = 0;  // Finaliza string
           proceed = true;
@@ -223,7 +231,7 @@ void loop() {
             nth_digit = 0;  // Zera índice da senha
             // Reescreve segunda linha do teclado
             LCD_clear_line(2);
-            switch(keyboard_state){
+            switch(keypad_state){
             case PASSWORD_ATTEMPT_PRE_DEACTIVATE:
               LCD_send_string("Senha: ", 2); break;
             case PASSWORD_ATTEMPT_PRE_CHANGE:
@@ -244,21 +252,21 @@ void loop() {
         if(password_state == CORRECT){
           LCD_send_string("Senha correta.", 1);
           LCD_clear_line(2);
-          switch(keyboard_state){
+          switch(keypad_state){
             case CHECK_PASSWORD_PRE_DEACTIVATE:              
               proceed = true;
-              keyboard_state = DEACTIVATE;
+              keypad_state = DEACTIVATE;
               break;
             case CHECK_PASSWORD_PRE_CHANGE:
               LCD_send_string("Insira nova", 1);
               LCD_send_string("senha: ", 2);
               digitalWrite(LED, HIGH);
-              keyboard_state = CHANGE_PASSWORD; break;
+              keypad_state = CHANGE_PASSWORD; break;
           }
         } else {
           LCD_send_string("Senha incorreta.", 1);
           LCD_clear_line(2);
-          keyboard_state = STANDBY;
+          keypad_state = STANDBY;
         }
         break;        
      /*------------------ DEACTIVATE -------------------*
@@ -270,7 +278,7 @@ void loop() {
         alarm_state = ALARM_OFF;
         digitalWrite(LASER, LOW);
         noTone(BUZZER);
-        keyboard_state = STANDBY;
+        keypad_state = STANDBY;
         break;
 
       /*--------------- CHANGE_PASSWORD -----------------*
@@ -283,7 +291,7 @@ void loop() {
           digitalWrite(LED, LOW);
           password[nth_digit] = 0; // Finaliza string
           EEPROM_putString(PASSWORD_ADDRESS, password); // Guarda senha na memória
-          keyboard_state = STANDBY;
+          keypad_state = STANDBY;
         } else if (key == '*'){ // Reinicia inserção de senha
             nth_digit = 0;
             LCD_clear_line(2);
@@ -317,7 +325,7 @@ char KEYPAD_sweep(){
     for(j=0;j<3;j++){
       if(digitalRead(C[j]) == LOW){
         digitalWrite(L[i], HIGH);
-        return keyboard[i][j];
+        return keypad[i][j];
       }
     }
     digitalWrite(L[i], HIGH);
