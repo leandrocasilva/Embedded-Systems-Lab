@@ -51,7 +51,7 @@ char    keyboard[4][3]={{'1','2','3'},
                         {'4','5','6'},
                         {'7','8','9'},
                         {'*','0','#'}};   // Caracteres disponíveis
-char    key, prev_key = 0;                // Atual e anteriroes teclas pressionadas
+char    key, prev_key = 0;                // Atual e anterior teclas pressionadas
 boolean key_debounce = false;             // Estado de debouncing do teclado  
 uint8_t key_debounce_time = 0;            // Tempo de debouncing
 
