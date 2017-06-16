@@ -412,14 +412,14 @@ void LCD_RS(uint8_t select) {
 
 // Envia um dado <c> ao LCD
 void LCD_send_data(char c) {
-	LCD_RS(1);
+  LCD_RS(1);
   shiftOut(DIN, CLK, MSBFIRST, c);    // Envia serialmente para o Shift Register
   LCD_En_Wait(50);
 }
 
 // Envia um comando <c> a LCD com um tempo <t> microssegundos de processamento
 void LCD_send_command(char c, uint8_t t) {
-	LCD_RS(0);
+  LCD_RS(0);
   shiftOut(DIN, CLK, MSBFIRST, c);    // Envia serialmente para o Shift Register
   LCD_En_Wait(t);
 }
