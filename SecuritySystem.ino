@@ -7,7 +7,6 @@
  * Data: Junho de 2017
  */
 
-//#include <stdio.h>
 #include <EEPROM.h>
 #include <TimerOne.h>
 #include <string.h>
