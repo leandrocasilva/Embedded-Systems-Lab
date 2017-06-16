@@ -406,7 +406,16 @@ void ISR_timer() {
 /*-------------------------------------------------------------------------
  * --------------------------  LCD_SPI   ----------------------------------
  *------------------------------------------------------------------------- */
+/* Estamos usando um display de LCD comum de 16x2 (YJD1602-A1),
+ * entretando estamos enviando os 8 bits de dados de forma serial
+ * e usando um Shift Register (SN74LS164N) para converter de volta à forma paralela.
+ *
+ * DATASHEET LCD: https://www.openhacks.com/uploadsproductos/eone-1602a1.pdf  
+ * DATASHEET Shift Register: http://www.ti.com/lit/ds/symlink/sn54ls164-sp.pdf
+ * SCHEMATICS LCD_SPI: https://github.com/leandrocs1310/Embedded-Systems-Lab/blob/master/LCD_SPI_Schematics.pdf */
+
 // Envia um pulso de enable ao LCD e espera por <t> microsegundos
+// (tempo necessário para processamento de dados do LCD)
 void LCD_En_Wait(uint8_t t) {
   digitalWrite(CE, LOW);
   digitalWrite(CE, HIGH);
